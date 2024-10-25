@@ -92,6 +92,17 @@ app.get("/viewsign", (req, res) => {
     });
 });
 
+
+app.get('/getUserDetails', (req, res) => {
+    const email = req.query.email;
+    // Fetch user from database using email
+    User.findOne({ email: email }, (err, user) => {
+        if (err) return res.status(500).send({ message: 'Server error' });
+        if (!user) return res.status(404).send({ message: 'User not found' });
+        res.send(user);
+    });
+});
+
 // Delete user by ID
 app.delete("/deleteuser/:id", (req, res) => {
     const userId = req.params.id; // Get user ID from request parameters
@@ -121,6 +132,7 @@ app.delete("/deleteuser/:id", (req, res) => {
 // Define Product Schema
 const productSchema = new mongoose.Schema({
     image: String,
+    email: String,
     pname: String,
     pdescription: String,
     price: Number,
@@ -170,9 +182,26 @@ app.get("/viewpro", (req, res) => {
 });
 
 
+// Fetch all products excluding those sold by the logged-in user
+app.get("/viewpro2", async (req, res) => {
+    const userEmail = req.user.email; // Assuming you are using JWT and have middleware to set req.user
+
+    try {
+        const products = await Product.find({ 
+            email: { $ne: userEmail }, // Exclude products sold by the logged-in user
+            quantity: { $gt: 0 } // Only include products in stock
+        });
+        res.json(products);
+    } catch (error) {
+        res.json(error);
+    }
+});
+
+
 // Define Product Schema and Model
 const productmodel = new mongoose.Schema({
     image: String,
+    email: String,
     pname: String,
     pdescription: String,
     price: Number,
@@ -235,7 +264,59 @@ app.get("/viewpro", (req, res) => {
         .then((products) => res.json(products))
         .catch((error) => res.json(error));
 });
-// View all orders route
+
+app.get("/viewORD", (req, res) => {
+    console.log("hiii")
+    const sellerEmail = req.query.email; // Retrieve the seller email from query parameters
+    
+    // Check if the email is provided
+    if (!sellerEmail) {
+        return res.status(400).json({ message: "Seller email is required" });
+    }
+
+    // Fetch orders that match the provided seller email
+    Order.find()
+        .populate('productId') // Populate product details
+        .then((orders) => {
+            // Filter orders based on the seller's email
+            const filteredOrders = orders.filter(order => 
+                order.productId.email && order.productId.email.toLowerCase() === sellerEmail.toLowerCase()
+            );
+
+            // Prepare order details to send as a response
+            const orderDetails = filteredOrders.map(order => ({
+                orderId: order._id,
+                productName: order.productId.pname, // Fetch product name
+                productId: order.productId._id, // Fetch product ID
+                userName: order.name, // Include user name
+                userEmail: order.email, // Include user email (customer)
+                userPhone: order.phone, // Include user phone
+                address: order.address, // Include delivery address
+                pincode: order.pincode, // Include pincode
+                quantity: order.orderQuantity, // Include quantity
+                price: order.productId.price // Fetch product price
+            }));
+
+            // Log filtered orders to the console
+            console.log("Filtered Order Details for seller:", sellerEmail, orderDetails);
+
+            // Send the filtered orders as a response
+            res.json(orderDetails);
+        })
+        .catch((error) => {
+            console.error("Error fetching orders:", error);
+            res.status(500).json({ message: "Error fetching orders", error });
+        });
+});
+
+
+
+
+
+
+
+
+//View all orders route---------------------------------------------------------------------------
 app.get("/vieworders", (req, res) => {
     Order.find()
         .populate('productId') // Populate product details
@@ -253,6 +334,11 @@ app.get("/vieworders", (req, res) => {
                 quantity: order.orderQuantity,
                 price: order.productId.price // Fetch product price
             }));
+
+            // Log the order details to console
+            console.log("Fetched Order Details: ", orderDetails);
+
+            // Send the order details as a response
             res.json(orderDetails);
         })
         .catch((error) => {
@@ -261,6 +347,159 @@ app.get("/vieworders", (req, res) => {
         });
 });
 
+
+
+// Assuming you have already set up your express server and required mongoose
+
+// // View orders route based on email
+// app.get("/vieworders", (req, res) => {
+//     console.log("hiii")
+//     const userEmail = req.query.email; // Get email from query parameters
+//     console.log(userEmail)
+//     Order.find({ email: userEmail }) // Find orders by user email
+//         .populate('productId') // Populate product details
+
+//         .then((orders) => {
+//             // Return the orders with product details
+//             const orderDetails = orders.map(order => ({
+//                 orderId: order._id,
+//                 productName: order.productId.pname, // Fetch product name
+//                 productId: order.productId._id, // Fetch product ID
+//                 userName: order.name, // Include user name
+//                 userEmail: order.email,
+//                 userPhone: order.phone,
+//                 address: order.address,
+//                 pincode: order.pincode, // Include pincode
+//                 quantity: order.orderQuantity,
+//                 price: order.productId.price // Fetch product price
+//             }));
+//             console.log(orderDetails)
+//             res.json(orderDetails);
+//         })
+//         .catch((error) => {
+//             console.error("Error fetching orders:", error);
+//             res.status(500).json({ message: "Error fetching orders", error });
+//         });
+// });
+
+app.get("/viewORD13123", (req, res) => {
+    console.log(req.query.email)
+    const userEmail = req.query.email; // Get email from query parameters
+    console.log("User email: ", userEmail);
+    // Step 1: Find products associated with the user email
+    Product.find({ email: userEmail })
+        .then(products => {
+            // If no products found, send an error response
+            if (products.length === 0) {
+                return res.status(404).json({ message: "No products found for this user." });
+            }
+
+            // Get the product IDs for the found products
+            const productIds = products.map(product => product._id);
+            console.log("Found product IDs: ", productIds);
+
+            // Step 2: Find orders associated with these product IDs
+            return Order.find({ productId: { $in: productIds } }).populate('productId');
+        })
+        .then(orders => {
+            // If no orders found, send a message
+            if (orders.length === 0) {
+                return res.status(404).json({ message: "No orders found for the user's products." });
+            }
+
+            // Step 3: Format the order details
+            const orderDetails = orders.map(order => ({
+                orderId: order._id,
+                productName: order.productId.pname, // Fetch product name from populated product
+                productId: order.productId._id, // Fetch product ID
+                userName: order.name, // Customer name
+                userEmail: order.email, // Customer email
+                userPhone: order.phone, // Customer phone
+                address: order.address, // Customer address
+                pincode: order.pincode, // Customer pincode
+                quantity: order.orderQuantity, // Order quantity
+                price: order.productId.price // Product price from populated product
+            }));
+
+            console.log("Order Details: ", orderDetails);
+            res.json(orderDetails); // Send the order details as response
+        })
+        .catch(error => {
+            console.error("Error fetching orders: ", error);
+            res.status(500).json({ message: "Error fetching orders", error });
+        });
+});
+
+
+
+// Fetch orders by user email
+app.get('/orders/:email', async (req, res) => {
+    const userEmail = req.params.email;
+
+    try {
+        const orders = await Order.find({ email: userEmail }); // Adjust your query based on your Order schema
+        if (orders.length === 0) {
+            return res.status(404).json({ status: "Error", message: "No orders found for this user." });
+        }
+        res.status(200).json({ status: "Success", orders });
+    } catch (error) {
+        console.error("Error fetching orders:", error);
+        res.status(500).json({ status: "Error", message: "An error occurred while fetching orders." });
+    }
+});
+
+// // View orders route based on email new
+// app.get("/vieworders", (req, res) => {
+//     const userEmail = req.query.email; // Get email from query parameters
+
+//     Order.find({ email: userEmail }) // Find orders by user email
+//         .populate('productId') // Populate product details
+//         .then((orders) => {
+//             // Return the orders with product details
+//             const orderDetails = orders.map(order => ({
+//                 orderId: order._id,
+//                 productName: order.productId.pname, // Fetch product name
+//                 productId: order.productId._id, // Fetch product ID
+//                 userName: order.name, // Include user name
+//                 userEmail: order.email,
+//                 userPhone: order.phone,
+//                 address: order.address,
+//                 pincode: order.pincode, // Include pincode
+//                 quantity: order.orderQuantity,
+//                 price: order.productId.price // Fetch product price
+//             }));
+//             res.json(orderDetails);
+//         })
+//         .catch((error) => {
+//             console.error("Error fetching orders:", error);
+//             res.status(500).json({ message: "Error fetching orders", error });
+//         });
+// });
+
+
+
+app.use((req, res, next) => {
+    console.log(`Received request: ${req.method} ${req.url}`);
+    next();
+});
+
+
+// Route to get sold products of a specific user
+app.get("/soldproducts/:userId", (req, res) => {
+    const { userId } = req.params;
+
+    Product.find({ userId: userId }) // Find products sold by the specified user
+        .then((products) => {
+            if (!products.length) {
+                return res.status(404).json({ status: "error", message: "No sold products found." });
+            }
+            res.json({ status: "success", products });
+        })
+        .catch((error) => {
+            console.error("Error fetching sold products:", error);
+            res.status(500).json({ status: "error", message: error.message });
+        });
+});
 
 //recepe
 

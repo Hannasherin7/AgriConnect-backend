@@ -16,6 +16,7 @@ const orderSchema = new mongoose.Schema({
 // Define Product Schema
 const productSchema = new mongoose.Schema({
     image: String,
+    email: String,
     pname: String,
     pdescription: String,
     price: Number,
