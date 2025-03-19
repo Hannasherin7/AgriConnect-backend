@@ -4,6 +4,9 @@ const cors = require("cors");
 const app = express();
 const bcrypt = require("bcryptjs"); // Import encryption package
 const jwt = require("jsonwebtoken"); // Importing token library
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 app.use(cors());
 app.use(express.json());
@@ -642,6 +645,154 @@ app.get("/viewcom",(req,res)=>{
             console.error("Error deleting user:", error); // Log the error
             res.json({ "status": "error", message: error.message }); // Return the error message
         });
+});
+
+//strt
+
+const {UploadModel} =require("./models/file");
+
+
+app.post("/addfile",(req,res)=>{
+    let input=req.body
+    let file=new UploadModel(input)
+    file.save()
+    console.log(file)
+    res.json({"status":"success"})
+})
+
+// Directory setup
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    console.log("Created 'uploads' directory.");
+} else {
+    console.log("'uploads' directory exists.");
+}
+
+// Multer storage setup
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir); // Ensure the absolute path is used
+    },
+    filename: (req, file, cb) => {
+        const uniqueName = Date.now() + path.extname(file.originalname);
+        cb(null, uniqueName);
+    }
+});
+
+const upload = multer({ storage });
+
+// Enable CORS for all routes
+app.use(cors());
+
+// Serve the files statically from the uploads directory
+app.use('/files', express.static(uploadDir)); // This line allows you to access files via /files/<filename>
+
+// File upload route
+app.post('/upload', upload.single('file'), (req, res) => {
+    console.log("Received request: POST /upload");
+
+    if (!req.file) {
+        console.log("No file received in the request");
+        return res.status(400).send({ message: 'No file uploaded.' });
+    }
+
+    const email = req.body.email; // Get the email from the request body
+    console.log("Email received:", email); // Log the email
+    console.log("File uploaded:", req.file);
+    
+    // Save file and email logic here if needed
+    res.send({ status: 'success', message: 'File uploaded successfully', filePath: req.file.path });
+});
+
+
+// Endpoint to fetch all uploaded files
+app.get('/files', (req, res) => {
+    const directoryPath = path.join(__dirname, 'uploads/');
+  
+    // Read the directory for files
+    fs.readdir(directoryPath, (err, files) => {
+        if (err) {
+            return res.status(500).send('Unable to scan directory: ' + err);
+        }
+  
+        // Return the list of files
+        res.send(files);
+    });
+});
+
+//end 
+
+
+//farmer
+
+
+const FarmerModel = require("./models/farmer");
+
+// Register Farmer
+app.post("/registerFarmer", async (req, res) => {
+    try {
+        const { name, email, phone, termsAccepted } = req.body;
+        const idProof = req.file ? req.file.path : null;
+
+        if (!name || !email || !phone || !idProof || !termsAccepted) {
+            return res.status(400).json({ status: "error", message: "All fields are required" });
+        }
+        
+        let existingFarmer = await FarmerModel.findOne({ email });
+        if (existingFarmer) {
+            if (existingFarmer.status === "rejected") {
+                await FarmerModel.deleteOne({ email });
+            } else {
+                return res.status(400).json({ status: "error", message: "Farmer already registered" });
+            }
+        }
+        
+        const newFarmer = new FarmerModel({ name, email, phone, idProof, termsAccepted, status: "pending" });
+        await newFarmer.save();
+        res.status(201).json({ status: "success", message: "Farmer registered. Awaiting admin approval." });
+    } catch (error) {
+        console.error("Error during farmer registration", error);
+        res.status(500).json({ status: "error", message: "Failed to register farmer" });
+    }
+});
+
+// Get All Farmers (For Admin)
+app.get("/getAllFarmers", async (req, res) => {
+    try {
+        const farmers = await FarmerModel.find();
+        res.json({ status: "success", data: farmers });
+    } catch (error) {
+        console.error("Error retrieving farmers", error);
+        res.status(500).json({ status: "error", message: "Failed to retrieve farmers" });
+    }
+});
+
+// Update Farmer Status
+app.post("/updateFarmerStatus", async (req, res) => {
+    const { farmerId, status } = req.body;
+    try {
+        await FarmerModel.findByIdAndUpdate(farmerId, { status });
+        res.json({ status: "success", message: "Farmer status updated successfully" });
+    } catch (error) {
+        console.error("Error updating farmer status", error);
+        res.status(500).json({ status: "error", message: "Failed to update status" });
+    }
+});
+
+// Check Farmer Approval Before Selling Products
+app.get("/checkFarmerStatus/:email", async (req, res) => {
+    try {
+        const { email } = req.params;
+        const farmer = await FarmerModel.findOne({ email });
+
+        if (!farmer) return res.status(404).json({ status: "error", message: "Farmer not found" });
+
+        res.json({ status: "success", farmerStatus: farmer.status });
+    } catch (error) {
+        console.error("Error checking farmer status", error);
+        res.status(500).json({ status: "error", message: "Error checking farmer status" });
+    }
 });
 
 
